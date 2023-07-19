@@ -32,8 +32,8 @@ stages:
         
     - bash: |
         pip install --target="./.python_packages/lib/site-packages" -r ./requirements.txt
-        workingDirectory: $(workingDirectory)
-        displayName: 'Install application dependencies'
+      workingDirectory: $(workingDirectory)
+      displayName: 'Install application dependencies'
 
     - task: ArchiveFiles@2
       displayName: 'Archive files'
