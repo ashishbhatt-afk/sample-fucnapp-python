@@ -3,7 +3,7 @@ trigger:
     include:
     - main
 stages:
-- stage: __default
+- stage: default
   jobs:
   - job: Job
     pool:
@@ -11,7 +11,7 @@ stages:
     strategy:
       matrix:
         Python37:
-          python.version: '3.7'
+          python.version: '3.x'
     steps:
     - task: UsePythonVersion@0
       inputs:
