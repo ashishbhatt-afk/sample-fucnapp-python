@@ -1,68 +1,103 @@
 trigger:
-  branches:
-    include:
-    - main
+- main
+
+parameters:
+  - name: environ
+    displayName: Environment
+    type: string
+    default: dev
+    values:
+    - dev
+    - test
+    - uat
+    - prod
+  - name: depends_on
+    type: object
+    default:
+      dev:
+        - validate
+      test:
+        - Build
+        - validate
+
+resources:
+- repo: self
 
 variables:
-  workingDirectory: '$(System.DefaultWorkingDirectory)/'
+# All the below code will be based on these flags. The condition for flag can be changed in one place here
+# Example: Say, tomorrow we want to determine dev by branch name etc.
+- name: isDev
+  value: ${{eq(parameters.environ, 'dev')}}
+- name: isTest
+  value: ${{eq(parameters.environ, 'test')}}
+- name: isUat
+  value: ${{eq(parameters.environ, 'test')}}
+- name: isProd
+  value: ${{eq(parameters.environ, 'prod')}}
+- name: tag
+  value: '$(Build.BuildId)'
+- name: ENVIRONMENT
+  value: ${{ parameters.environ }}
+
 
 stages:
-- stage: default
+
+- stage: validate
+  displayName: validate
   jobs:
-  - job: Job
+  - job: validateYaml
+    displayName: validate yaml
     pool:
-      vmImage: ubuntu-latest
-    strategy:
-      matrix:
-        Python37:
-          python.version: '3.x'
+      vmImage: 'ubuntu-latest'
+    steps: 
+    - task: Bash@3
+      displayName: Print depends
+      inputs:
+        targetType: 'inline'
+        script: echo dependencies = ${{join(' ', parameters.depends_on[parameters.environ]) }}
+    - task: Bash@3
+      displayName: Print is flags
+      inputs:
+        targetType: 'inline'
+        script: echo isDev = $(isDev), isTest = $(isTest), isUat=$(isUat), isProd=$(isProd)
+- stage: Build
+  displayName: Build image
+  condition: or(eq(variables.isProd, true), eq(variables.isTest, true))
+  jobs:  
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: 'ubuntu-latest'
     steps:
-    - task: UsePythonVersion@0
+    - task: Maven@3
+      displayName: Maven build
       inputs:
-        versionSpec: '$(python.version)'
-      displayName: 'Use Python $(python.version)'
-
-    - bash: |
-        if [ -f extensions.csproj ]
-        then
-            dotnet build extensions.csproj --runtime ubuntu.16.04-x64 --output ./bin
-        fi
-      workingDirectory: $(workingDirectory)
-      displayName: 'Build extensions'
-        
-    - bash: |
-        pip install --target="./.python_packages/lib/site-packages" -r ./requirements.txt
-      workingDirectory: $(workingDirectory)
-      displayName: 'Install application dependencies'
-
-    - task: ArchiveFiles@2
-      displayName: 'Archive files'
+        mavenPomFile: 'pom.xml'
+        goals: 'clean install'
+        publishJUnitResults: false
+        javaHomeOption: 'JDKVersion'
+        jdkVersionOption: '1.11'
+        mavenVersionOption: 'Default'
+        mavenAuthenticateFeed: false
+        effectivePomSkip: false
+        sonarQubeRunAnalysis: false
+    
+    - task: Docker@2
+      condition: eq(variables.isProd, true)
+      displayName: Build an image - only for prod
       inputs:
-        rootFolderOrFile: '$(workingDirectory)'
-        includeRootFolder: false
-        archiveType: zip
-        archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
-        replaceExistingArchive: true
-
-    - publish: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
-      artifact: drop
-
-    # - task: CmdLine@2
-    #   displayName: 'Install dependencies'
-    #   inputs:
-    #     script: |
-    #       python -m pip install --upgrade pip
-    #       pip install -r requirements.txt
-    # - task: ArchiveFiles@2
-    #   inputs:
-    #     rootFolderOrFile: '$(Build.BinariesDirectory)'
-    #     includeRootFolder: true
-    #     archiveType: 'zip'
-    #     archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
-    #     replaceExistingArchive: true
-    # - task: PublishBuildArtifacts@1
-    #   inputs:
-    #     PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-    #     ArtifactName: 'drop'
-    #     publishLocation: 'Container'
-
+        command: build
+        dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
+        tags: |
+          $(tag)
+# - stage: ReTriggerIfApplicable
+#   condition: and(succeeded(),or(eq(variables.isDev, true), eq(variables.isTest, true)))
+#   displayName: Retrigger
+#   dependsOn:
+#   - ${{ each stage in parameters.depends_on[parameters.environ] }}:
+#     - ${{ stage }}
+#   jobs:
+#     - job: 
+#       steps:
+#       displayName: "xyz"
+#       - ta
